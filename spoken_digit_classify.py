@@ -1,99 +1,158 @@
 import tensorflow as tf
 import numpy as np
+from random import shuffle
 from scipy.io.wavfile import read
+from scipy.io.wavfile import write
 from scipy.signal import resample
+from tensorflow.python.keras.callbacks import TensorBoard
+import matplotlib.pyplot as plt
 import os
 
-training_path_dir = 'recordings/training/'
-validation_path_dir = 'recordings/validation/'
+
+def make_dataset(file_path, resample_size, max_len):
+    file_list = os.listdir(file_path)
+    shuffle(file_list)
+    # file_list.sort()
+    data, labels = [], []
+
+    for file_name in file_list:
+        _, wav_file = read(file_path + file_name)
+        padded = np.zeros(resample_size)
+        wav_file_len = len(wav_file)
+
+        if wav_file_len > max_len:
+            max_len = wav_file_len
+
+        padded_center = resample_size // 2
+        wav_center = wav_file_len // 2
+        front = padded_center - wav_center
+        padded[front:front + wav_file_len] = wav_file
+        # padded = padded / np.max(padded)
+        data.append(padded)
+        labels.append(file_name[0])
+
+    data = np.array(data, dtype=float)
+    labels = np.array(labels, dtype=int)
+
+    total_data = len(data)
+    data = data.reshape(total_data, resample_size, 1)
+
+    return data, labels, max_len
+
+# def make_dataset(file_path, resample_size, max_len):
+#     file_list = os.listdir(file_path)
+#     shuffle(file_list)
+#     # file_list.sort()
+#     data, labels = [], []
+#
+#     for file_name in file_list:
+#         _, wav_file = read(file_path + file_name)
+#         wav_file = resample(wav_file, resample_size)
+#         # wav_file = wav_file / np.max(wav_file)
+#         data.append(wav_file)
+#         labels.append(file_name[0])
+#
+#     data = np.array(data, dtype=float)
+#     labels = np.array(labels, dtype=int)
+#
+#     total_data = len(data)
+#     data = data.reshape(total_data, resample_size, 1)
+#
+#     return data, labels, max_len
+
+
+train_path_dir = 'recordings/training/'
+valid_path_dir = 'recordings/validation/'
 test_path_dir = 'recordings/test/'
 
-training_file_list = os.listdir(training_path_dir)
-validation_file_list = os.listdir(validation_path_dir)
-test_file_list = os.listdir(test_path_dir)
+resample_size = 19683
+# resample_size = 59049
 
-training_file_list.sort()
-validation_file_list .sort()
-test_file_list.sort()
+max_len_train = 0
+max_len_valid = 0
+max_len_test = 0
 
-training_sets = []
-validation_sets = []
-test_sets = []
+train_data, train_labels, max_len_train = make_dataset(train_path_dir, resample_size, max_len_train)
+valid_data, valid_labels, max_len_valid = make_dataset(valid_path_dir, resample_size, max_len_valid)
+test_data, test_labels, max_len_test = make_dataset(test_path_dir, resample_size, max_len_test)
 
-training_labels = []
-validation_labels = []
-test_labels = []
-
-resample_size = 6561
-
-for wav_file in training_file_list:
-    _, input_data = read(training_path_dir + wav_file)
-    input_data = resample(input_data, resample_size, axis=0)
-    training_sets.append(input_data)
-    training_labels.append(wav_file[0])
-
-for wav_file in validation_file_list:
-    _, input_data = read(validation_path_dir + wav_file)
-    input_data = resample(input_data, resample_size, axis=0)
-    validation_sets.append(input_data)
-    validation_labels.append(wav_file[0])
-
-for wav_file in test_file_list:
-    _, input_data = read(test_path_dir + wav_file)
-    input_data = resample(input_data, resample_size, axis=0)
-    test_sets.append(input_data)
-    test_labels.append(wav_file[0])
-
-training_sets = np.array(training_sets, dtype=float)
-training_labels = np.array(training_labels, dtype=int)
-
-validation_sets = np.array(validation_sets, dtype=float)
-validation_labels = np.array(validation_labels, dtype=int)
-
-test_sets = np.array(test_sets, dtype=float)
-test_labels = np.array(test_labels, dtype=int)
-
-training_sets = training_sets.reshape(1200, resample_size, 1)
-validation_sets = validation_sets.reshape(400, resample_size, 1)
-test_sets = test_sets.reshape(400, resample_size, 1)
+# print(max_len_train)
+# print(max_len_valid)
+# print(max_len_test)
 
 num_classes = 10
-lr = 0.001
+lr = 0.01
 input_shape = (resample_size, 1)
 batch_size = 100
-num_epochs = 10
+num_epochs = 80
 
-training_labels_one_hot = tf.keras.utils.to_categorical(training_labels, num_classes)
-validation_labels_one_hot = tf.keras.utils.to_categorical(validation_labels, num_classes)
+tensorboard = TensorBoard(log_dir="logs/")
+
+train_labels_one_hot = tf.keras.utils.to_categorical(train_labels, num_classes)
+valid_labels_one_hot = tf.keras.utils.to_categorical(valid_labels, num_classes)
 test_labels_one_hot = tf.keras.utils.to_categorical(test_labels, num_classes)
 
-model = tf.keras.Sequential()
-model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=3, strides=3, padding='same', activation='relu', input_shape=input_shape))
-model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=3, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.MaxPool1D(pool_size=3, strides=3))
-model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=3, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.MaxPool1D(pool_size=3, strides=3))
-model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=3, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.MaxPool1D(pool_size=3, strides=3))
-model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=3, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.MaxPool1D(pool_size=3, strides=3))
-model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=3, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.MaxPool1D(pool_size=3, strides=3))
-model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=3, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.MaxPool1D(pool_size=3, strides=3))
-model.add(tf.keras.layers.Conv1D(filters=512, kernel_size=3, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.MaxPool1D(pool_size=3, strides=3))
-model.add(tf.keras.layers.Conv1D(filters=512, kernel_size=1, strides=1, padding='same', activation='relu'))
-model.add(tf.keras.layers.Dropout(0.5))
-model.add(tf.keras.layers.Dense(num_classes, activation='sigmoid'))
+# train_labels_one_hot = train_labels_one_hot.reshape(len(train_labels), 1, num_classes)
+# valid_labels_one_hot = valid_labels_one_hot.reshape(len(valid_labels), 1, num_classes)
+# test_labels_one_hot = test_labels_one_hot.reshape(len(test_labels), 1, num_classes)
 
-# model.compile(loss=tf.keras.losses.categorical_crossentropy,
-model.compile(loss=tf.keras.losses.mean_absolute_error,
-              optimizer=tf.keras.optimizers.Adam(lr=lr),
+m = 3
+
+with tf.name_scope("Layers"):
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=m, strides=m, padding='same', input_shape=input_shape))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    # modules start
+    model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    model.add(tf.keras.layers.Conv1D(filters=512, kernel_size=m, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    # modules end
+    model.add(tf.keras.layers.Conv1D(filters=512, kernel_size=1, strides=1, padding='same'))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+    model.add(tf.keras.layers.Dropout(0.5))
+    model.add(tf.keras.layers.Flatten())
+    model.add(tf.keras.layers.Dense(num_classes, activation='sigmoid'))
+
+sgd = tf.keras.optimizers.SGD(lr=lr, momentum=0.9, nesterov=True)
+model.compile(loss=tf.keras.losses.categorical_crossentropy,
+              optimizer=sgd,
               metrics=['accuracy']
               )
 
 model.summary()
 
-model.fit(x=training_sets, y=training_labels, batch_size=batch_size, epochs=num_epochs,
-          validation_data=(validation_sets, validation_labels))
+history = model.fit(x=train_data, y=train_labels_one_hot, batch_size=batch_size, epochs=num_epochs,
+                    validation_data=(valid_data, valid_labels_one_hot), callbacks=[tensorboard])
+
+test_loss, test_acc = model.evaluate(x=test_data, y=test_labels_one_hot)
