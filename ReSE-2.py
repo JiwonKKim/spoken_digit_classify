@@ -100,11 +100,13 @@ def module_layer(X, T, filters=128, kernel_size=3, conv_strides=1, r=16,
     return X, T
 
 
-def bottom_layer(X, gmp_1, gmp_2, gmp_3, num_classes=10, filters=512, kernel_size=1, strides=1, padding='same'):
-    X = tf.keras.layers.Concatenate()([gmp_1, gmp_2, gmp_3])
+def bottom_layer(X, gmp_f, gmp_b, num_classes=10, filters=256, kernel_size=1, strides=1, padding='same'):
+    X = tf.keras.layers.Conv1D(filters=filters, kernel_size=kernel_size, strides=strides, padding=padding)(X)
     X = tf.keras.layers.BatchNormalization()(X)
     X = tf.keras.layers.Activation('relu')(X)
     X = tf.keras.layers.Dropout(0.5)(X)
+    gmp_c = tf.keras.layers.GlobalMaxPool1D()(X)
+    X = tf.keras.layers.Concatenate()([gmp_f, gmp_c, gmp_b])
     X = tf.keras.layers.Dense(num_classes, activation='sigmoid')(X)
 
     return X
@@ -181,30 +183,29 @@ with tf.name_scope("Layers"):
 
     X_input = tf.keras.layers.Input(input_shape)
 
-    X, T = top_layer(X_input, T, filters=256, kernel_size=m, strides=m, padding='same')
+    X, T = top_layer(X_input, T, filters=512, kernel_size=m, strides=m, padding='same')
     # modules start
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    gmp_3 = tf.keras.layers.GlobalMaxPool1D()(X)
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    gmp_1 = tf.keras.layers.GlobalMaxPool1D()(X)
-    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+    gmp_b = tf.keras.layers.GlobalMaxPool1D()(X)
+    X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
                         pool_size=m, pool_strides=m, padding='same')
-    gmp_2 = tf.keras.layers.GlobalMaxPool1D()(X)
+    gmp_f = tf.keras.layers.GlobalMaxPool1D()(X)
 
 # modules end
-    X = bottom_layer(X, gmp_1, gmp_2, gmp_3, num_classes=num_classes, filters=512, kernel_size=1, strides=1, padding='same')
+    X = bottom_layer(X, gmp_f, gmp_b, num_classes=num_classes, filters=512, kernel_size=1, strides=1, padding='same')
 
     model = tf.keras.models.Model(inputs=X_input, outputs=X)
 
