@@ -61,6 +61,55 @@ def make_dataset(file_path, resample_size, max_len):
 #     return data, labels, max_len
 
 
+def top_layer(X_input, T, filters=128, kernel_size=3, strides=3, padding='same'):
+    X = tf.keras.layers.Conv1D(filters=filters, kernel_size=kernel_size, strides=strides, padding=padding)(X_input)
+    X = tf.keras.layers.BatchNormalization()(X)
+    X = tf.keras.layers.Activation('relu')(X)
+
+    T = T//kernel_size
+    return X, T
+
+
+def module_layer(X, T, filters=128, kernel_size=3, conv_strides=1, r=16,
+                 pool_size=3, pool_strides=3, padding='same'):
+    X_shortcut = X
+
+    X = tf.keras.layers.Conv1D(filters=filters, kernel_size=kernel_size, strides=conv_strides, padding=padding)(X)
+    X = tf.keras.layers.BatchNormalization()(X)
+    X = tf.keras.layers.Activation('relu')(X)
+    X = tf.keras.layers.Dropout(0.5)(X)
+    X = tf.keras.layers.Conv1D(filters=filters, kernel_size=kernel_size, strides=conv_strides, padding=padding)(X)
+    X = tf.keras.layers.BatchNormalization()(X)
+
+    X_scale = X
+
+    X = tf.keras.layers.GlobalAveragePooling1D()(X)
+    X = tf.keras.layers.Dense(filters//r)(X)
+    X = tf.keras.layers.Activation('relu')(X)
+    X = tf.keras.layers.Dense(filters)(X)
+    X = tf.keras.layers.Activation('sigmoid')(X)
+    X = tf.keras.layers.RepeatVector(T)(X)
+    X = tf.keras.layers.Multiply()([X, X_scale])
+
+    X = tf.keras.layers.Add()([X, X_shortcut])
+
+    X = tf.keras.layers.Activation('relu')(X)
+    X = tf.keras.layers.MaxPool1D(pool_size=pool_size, strides=pool_strides)(X)
+
+    T = T // kernel_size
+    return X, T
+
+
+def bottom_layer(X, gmp_1, gmp_2, gmp_3, num_classes=10, filters=512, kernel_size=1, strides=1, padding='same'):
+    X = tf.keras.layers.Concatenate()([gmp_1, gmp_2, gmp_3])
+    X = tf.keras.layers.BatchNormalization()(X)
+    X = tf.keras.layers.Activation('relu')(X)
+    X = tf.keras.layers.Dropout(0.5)(X)
+    X = tf.keras.layers.Dense(num_classes, activation='sigmoid')(X)
+
+    return X
+
+
 train_path_dir = 'recordings/training/'
 valid_path_dir = 'recordings/validation/'
 test_path_dir = 'recordings/test/'
@@ -84,66 +133,80 @@ num_classes = 10
 lr = 0.01
 input_shape = (resample_size, 1)
 batch_size = 100
-num_epochs = 80
-
+num_epochs = 30
+m = 3
+r = 16
 tensorboard = TensorBoard(log_dir="logs/")
 
 train_labels_one_hot = tf.keras.utils.to_categorical(train_labels, num_classes)
 valid_labels_one_hot = tf.keras.utils.to_categorical(valid_labels, num_classes)
 test_labels_one_hot = tf.keras.utils.to_categorical(test_labels, num_classes)
 
-# train_labels_one_hot = train_labels_one_hot.reshape(len(train_labels), 1, num_classes)
-# valid_labels_one_hot = valid_labels_one_hot.reshape(len(valid_labels), 1, num_classes)
-# test_labels_one_hot = test_labels_one_hot.reshape(len(test_labels), 1, num_classes)
+# with tf.name_scope("Layers"):
+#     T = resample_size
+#
+#     X_input = tf.keras.layers.Input(input_shape)
+#
+#     X, T = top_layer(X_input, T, filters=128, kernel_size=m, strides=m, padding='same')
+#     # modules start
+#     X, T = module_layer(X, T, filters=128, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     X, T = module_layer(X, T, filters=128, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     gmp_3 = tf.keras.layers.GlobalMaxPool1D()(X)
+#     X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     gmp_1 = tf.keras.layers.GlobalMaxPool1D()(X)
+#     X, T = module_layer(X, T, filters=512, kernel_size=m, conv_strides=1, r=r,
+#                         pool_size=m, pool_strides=m, padding='same')
+#     gmp_2 = tf.keras.layers.GlobalMaxPool1D()(X)
+#
+# # modules end
+#     X = bottom_layer(X, gmp_1, gmp_2, gmp_3, num_classes=num_classes, filters=512, kernel_size=1, strides=1, padding='same')
+#
+#     X.get_config()
+#     model = tf.keras.models.Model(inputs=X_input, outputs=X)
 
-m = 3
 
 with tf.name_scope("Layers"):
-    model = tf.keras.Sequential()
-    model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=m, strides=m, padding='same', input_shape=input_shape))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    # modules start
-    model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
+    T = resample_size
 
-    model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
-    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
-    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
-    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
-    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
-    model.add(tf.keras.layers.Conv1D(filters=256, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
-    model.add(tf.keras.layers.Conv1D(filters=512, kernel_size=m, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.MaxPool1D(pool_size=m, strides=m))
-    # modules end
-    model.add(tf.keras.layers.Conv1D(filters=512, kernel_size=1, strides=1, padding='same'))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-    model.add(tf.keras.layers.Dropout(0.5))
-    model.add(tf.keras.layers.Flatten())
-    model.add(tf.keras.layers.Dense(num_classes, activation='sigmoid'))
+    X_input = tf.keras.layers.Input(input_shape)
+
+    X, T = top_layer(X_input, T, filters=256, kernel_size=m, strides=m, padding='same')
+    # modules start
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    gmp_3 = tf.keras.layers.GlobalMaxPool1D()(X)
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    gmp_1 = tf.keras.layers.GlobalMaxPool1D()(X)
+    X, T = module_layer(X, T, filters=256, kernel_size=m, conv_strides=1, r=r,
+                        pool_size=m, pool_strides=m, padding='same')
+    gmp_2 = tf.keras.layers.GlobalMaxPool1D()(X)
+
+# modules end
+    X = bottom_layer(X, gmp_1, gmp_2, gmp_3, num_classes=num_classes, filters=512, kernel_size=1, strides=1, padding='same')
+
+    model = tf.keras.models.Model(inputs=X_input, outputs=X)
 
 sgd = tf.keras.optimizers.SGD(lr=lr, momentum=0.9, nesterov=True)
 model.compile(loss=tf.keras.losses.categorical_crossentropy,
